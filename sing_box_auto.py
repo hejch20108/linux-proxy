@@ -645,6 +645,13 @@ def build_config(nodes: list[dict[str, Any]], custom: dict[str, Any], ruleset_pa
     node_tags: list[str] = []
     for index, source_node in enumerate(nodes, 1):
         node = {k: copy.deepcopy(v) for k, v in source_node.items() if k != "source"}
+        # 订阅 JSON 可能携带原客户端的 DNS 标签（例如 dns_outbound_out）。
+        # 合并配置只保留本项目生成的 local DNS 服务器，避免引用不存在的标签。
+        resolver = node.get("domain_resolver")
+        if isinstance(resolver, dict):
+            resolver["server"] = "local"
+        elif resolver:
+            node["domain_resolver"] = "local"
         node["tag"] = f"node_{index:03d}_{safe_tag(node.get('tag', f'node-{index}'))}"
         node_tags.append(node["tag"])
         outbounds.append(node)

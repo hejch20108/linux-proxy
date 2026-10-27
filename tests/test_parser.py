@@ -159,6 +159,20 @@ class ParserTests(unittest.TestCase):
     self.assertTrue({"all_auto", "us_auto", "sg_auto", "tw_auto", "uk_auto"}.issubset(groups))
     self.assertEqual(config["route"]["final"], "all_auto")
 
+  def test_build_config_rebinds_imported_dns_resolver(self):
+    custom = {"listen": {"address": "127.0.0.1", "port": 1080}, "groups": [], "rules": []}
+    nodes = [{
+        "type": "anytls",
+        "tag": "本地节点",
+        "server": "example.com",
+        "server_port": 443,
+        "password": "secret",
+        "domain_resolver": {"server": "dns_outbound_out", "strategy": "ipv4_only"},
+        "tls": {"enabled": True},
+    }]
+    config = app.build_config(nodes, custom, {})
+    self.assertEqual(config["outbounds"][0]["domain_resolver"]["server"], "local")
+
 
 if __name__ == "__main__":
     unittest.main()
