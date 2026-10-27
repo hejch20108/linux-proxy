@@ -44,6 +44,50 @@ sudo python3 sing_box_auto.py deploy
 
 至少需要输入一个订阅链接，也可以连续输入多个订阅。
 
+如果云服务器无法直接访问订阅入口，可以改为使用本地缓存文件。编辑服务器上的
+`/etc/sing-box-auto/subscriptions.yaml`，保留或替换为下面的结构；`path` 指向订阅正文文件，正文可以是
+Sing-box JSON、Clash YAML、Base64 分享链接或明文分享链接：
+
+```yaml
+subscriptions:
+  - name: shanhai
+    source: file
+    path: /var/lib/sing-box-auto/subscriptions-cache/shanhai.body
+```
+
+本地缓存目录和文件权限建议如下：
+
+```bash
+sudo install -d -m 0770 -o root -g sing-box \
+  /var/lib/sing-box-auto/subscriptions-cache
+sudo install -m 0640 -o root -g sing-box \
+  /tmp/shanhai.body \
+  /var/lib/sing-box-auto/subscriptions-cache/shanhai.body
+rm -f /tmp/shanhai.body
+```
+
+Mac 端可先通过 Karing 的 SOCKS5 端口下载（端口以实际配置为准，历史上常见为 `7892`），再用 `scp` 上传；示例不包含真实订阅链接：
+
+```bash
+curl -x socks5h://127.0.0.1:7892 \
+  -fsSL -A 'sing-box 1.12.0' \
+  'https://YOUR_SUBSCRIPTION_HOST/YOUR_SUBSCRIPTION_PATH' \
+  -o /tmp/shanhai.body
+scp /tmp/shanhai.body ubuntu@SERVER_IP:/tmp/shanhai.body
+```
+
+上传并写入缓存后，在服务器执行：
+
+```bash
+sudo python3 /usr/local/libexec/sing-box-auto.py update
+```
+
+原有的 `url: https://...` 配置仍然可用；`source: file` 模式不会请求远程订阅地址。可以在
+`subscriptions` 下重复添加多个 `source: file` 条目，脚本会把订阅链接和本地文件解析出的节点合并、去重，最后只写入
+`/etc/sing-box-auto/config.json` 这一份最终配置，sing-box 服务始终读取这份文件。
+
+更新时如果当前没有任何订阅链接或本地配置文件，脚本会校验并继续使用已有的最终配置；如果所有来源暂时不可用，也会复用该配置。如果只有部分来源不可用，脚本会明确报错并保留旧配置，避免静默丢失节点。如果最终配置不存在或校验失败，会明确报错停止，不会生成空配置覆盖旧文件。
+
 ## 四、生成配置并启动
 
 部署准备完成后必须执行：
@@ -212,7 +256,7 @@ sudo python3 /usr/local/libexec/sing-box-auto.py rollback
 ## 十二、配置和权限
 
 ```text
-/etc/sing-box-auto/subscriptions.yaml  订阅 URL，0600
+/etc/sing-box-auto/subscriptions.yaml  订阅来源（URL 或本地文件），0600
 /etc/sing-box-auto/custom_config.yaml   分流规则
 /etc/sing-box-auto/config.json          生成配置，root:sing-box，0640
 /var/lib/sing-box-auto/rulesets/        .srs 规则集缓存

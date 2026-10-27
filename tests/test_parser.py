@@ -1,8 +1,12 @@
 import base64
+import io
 import json
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 import sing_box_auto as app
@@ -35,6 +39,95 @@ class ParserTests(unittest.TestCase):
     fmt, nodes = app.classify_and_parse("json", raw)
     self.assertEqual(fmt, "sing-box-json")
     self.assertEqual(nodes[0]["tag"], "us")
+
+  def test_local_file_subscription(self):
+    raw = json.dumps({"outbounds": [
+        {"type": "anytls", "tag": "本地美国01", "server": "example.com", "server_port": 443, "password": "local-secret"},
+    ]}).encode()
+    with tempfile.TemporaryDirectory() as directory:
+      path = Path(directory) / "subscription.body"
+      path.write_bytes(raw)
+      output = io.StringIO()
+      with mock.patch.object(app, "fetch_bytes") as fetch, redirect_stdout(output):
+        nodes = app.load_nodes({
+            "local": {
+                "source": "file",
+                "path": str(path),
+                "url": "https://should-not-be-requested.example/sub?token=secret",
+            },
+        })
+      self.assertEqual(len(nodes), 1)
+      self.assertNotIn("local-secret", output.getvalue())
+      fetch.assert_not_called()
+
+  def test_local_file_subscription_missing_is_explicit(self):
+    with self.assertRaisesRegex(app.DeploymentError, "本地文件不存在"):
+      app.load_nodes({"local": {"source": "file", "path": "/definitely/missing.body"}})
+
+  def test_legacy_url_subscription_shape_is_compatible(self):
+    raw = json.dumps({"outbounds": [
+        {"type": "anytls", "tag": "legacy", "server": "example.com", "server_port": 443, "password": "secret"},
+    ]}).encode()
+    with mock.patch.object(app, "fetch_bytes", return_value=raw) as fetch:
+      nodes = app.load_nodes({"legacy": "https://example.test/sub?token=secret"})
+    self.assertEqual(nodes[0]["tag"], "legacy")
+    fetch.assert_called_once()
+
+  def test_subscription_yaml_accepts_url_and_file_entries(self):
+    with tempfile.TemporaryDirectory() as directory:
+      path = Path(directory) / "subscriptions.yaml"
+      path.write_text(
+          "subscriptions:\n"
+          "  - name: remote\n"
+          "    url: https://example.test/sub\n"
+          "  - name: local\n"
+          "    source: file\n"
+          "    path: /var/lib/sing-box-auto/subscriptions-cache/local.body\n",
+          encoding="utf-8",
+      )
+      with mock.patch.object(app, "SUBSCRIPTIONS", path):
+        subscriptions = app.ensure_subscription_file()
+    self.assertEqual(subscriptions["remote"], {"source": "url", "url": "https://example.test/sub"})
+    self.assertEqual(subscriptions["local"]["source"], "file")
+
+  def test_merge_dedup_keeps_different_credentials(self):
+    raw = json.dumps({"outbounds": [
+        {"type": "anytls", "tag": "first", "server": "same.example", "server_port": 443, "password": "one"},
+        {"type": "anytls", "tag": "duplicate", "server": "same.example", "server_port": 443, "password": "one"},
+        {"type": "anytls", "tag": "different", "server": "same.example", "server_port": 443, "password": "two"},
+    ]}).encode()
+    with tempfile.TemporaryDirectory() as directory:
+      path = Path(directory) / "subscription.json"
+      path.write_bytes(raw)
+      nodes = app.load_nodes({"local": {"source": "file", "path": str(path)}})
+    self.assertEqual([node["tag"] for node in nodes], ["first", "different"])
+
+  def test_missing_sources_require_existing_final_config(self):
+    with tempfile.TemporaryDirectory() as directory:
+      path = Path(directory) / "config.json"
+      with mock.patch.object(app, "CONFIG", path):
+        with self.assertRaisesRegex(app.DeploymentError, "之前不存在最终合并配置"):
+          app.require_existing_final_config()
+
+  def test_all_unavailable_sources_can_fall_back(self):
+    nodes = app.load_nodes(
+        {"missing": {"source": "file", "path": "/definitely/missing.body"}},
+        allow_all_unavailable=True,
+    )
+    self.assertEqual(nodes, [])
+
+  def test_partial_source_failure_does_not_silently_drop_nodes(self):
+    raw = json.dumps({"outbounds": [
+        {"type": "anytls", "tag": "available", "server": "example.com", "server_port": 443, "password": "secret"},
+    ]}).encode()
+    with tempfile.TemporaryDirectory() as directory:
+      path = Path(directory) / "subscription.json"
+      path.write_bytes(raw)
+      with self.assertRaisesRegex(app.DeploymentError, "部分订阅来源不可用"):
+        app.load_nodes({
+            "available": {"source": "file", "path": str(path)},
+            "missing": {"source": "file", "path": "/definitely/missing.body"},
+        }, allow_all_unavailable=True)
 
 
   def test_redaction(self):

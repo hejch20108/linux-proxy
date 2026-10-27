@@ -36,6 +36,7 @@ except ImportError:  # pragma: no cover - Linux 部署时由依赖检查处理
 
 ROOT = Path("/etc/sing-box-auto")
 STATE = Path("/var/lib/sing-box-auto")
+SUBSCRIPTION_CACHE = STATE / "subscriptions-cache"
 BACKUP = Path("/var/backups/sing-box-auto")
 CONFIG = ROOT / "config.json"
 SUBSCRIPTIONS = ROOT / "subscriptions.yaml"
@@ -182,7 +183,13 @@ def check_environment(require_sing_box: bool = False) -> None:
 
 
 def ensure_dirs() -> None:
-    for path, mode in ((ROOT, 0o750), (STATE, 0o770), (RULESETS, 0o750), (BACKUP, 0o700)):
+    for path, mode in (
+        (ROOT, 0o750),
+        (STATE, 0o770),
+        (SUBSCRIPTION_CACHE, 0o770),
+        (RULESETS, 0o750),
+        (BACKUP, 0o700),
+    ):
         path.mkdir(parents=True, exist_ok=True)
         path.chmod(mode)
 
@@ -219,6 +226,27 @@ def fetch_bytes(url: str, *, timeout: int = 30, user_agent: str = "sing-box 1.12
         raise DeploymentError(f"订阅下载失败，HTTP {exc.code}: {redact_url(url)}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise DeploymentError(f"订阅下载失败: {redact_url(url)} ({type(exc).__name__})") from exc
+
+
+def read_local_subscription(path_value: str, *, source: str) -> bytes:
+    """读取本地订阅缓存，不把内容写入日志。"""
+    path = Path(path_value).expanduser()
+    if not path.exists():
+        raise DeploymentError(f"订阅 {source} 的本地文件不存在: {path}")
+    if not path.is_file():
+        raise DeploymentError(f"订阅 {source} 的本地路径不是普通文件: {path}")
+    try:
+        with path.open("rb") as handle:
+            body = handle.read(MAX_SUBSCRIPTION_BYTES + 1)
+    except PermissionError as exc:
+        raise DeploymentError(f"订阅 {source} 的本地文件无读取权限: {path}") from exc
+    except OSError as exc:
+        raise DeploymentError(f"订阅 {source} 的本地文件读取失败: {path} ({type(exc).__name__})") from exc
+    if len(body) > MAX_SUBSCRIPTION_BYTES:
+        raise DeploymentError(f"订阅 {source} 的本地文件超过大小限制，已停止处理。")
+    if not body:
+        raise DeploymentError(f"订阅 {source} 的本地文件为空: {path}")
+    return body
 
 
 def decode_base64_text(raw: bytes) -> str | None:
@@ -434,23 +462,37 @@ def load_yaml(path: Path, default: Any) -> Any:
     return default if value is None else value
 
 
-def ensure_subscription_file() -> dict[str, str]:
+def ensure_subscription_file(*, allow_empty: bool = False) -> dict[str, dict[str, str]]:
     if SUBSCRIPTIONS.exists():
         SUBSCRIPTIONS.chmod(0o600)
     data = load_yaml(SUBSCRIPTIONS, {"subscriptions": []})
     entries = data.get("subscriptions", []) if isinstance(data, dict) else []
-    subscriptions: dict[str, str] = {}
+    subscriptions: dict[str, dict[str, str]] = {}
     for item in entries:
-        if isinstance(item, dict) and item.get("name") and item.get("url"):
-            name = str(item["name"]).strip()
-            url = str(item["url"]).strip()
-            if name.lower().startswith("https://"):
-                raise DeploymentError("订阅文件中的 name 看起来填成了 URL；请将 name 改为简短名称，将 url 改为订阅链接。")
-            if not url.lower().startswith("https://"):
-                raise DeploymentError(f"订阅 {name} 不是 HTTPS URL，已停止。")
-            subscriptions[name] = url
+        if not isinstance(item, dict) or not item.get("name"):
+            continue
+        name = str(item["name"]).strip()
+        if name.lower().startswith("https://"):
+            raise DeploymentError("订阅文件中的 name 看起来填成了 URL；请将 name 改为简短名称。")
+        source = str(item.get("source", "url")).strip().lower() or "url"
+        if source == "file":
+            path = str(item.get("path", "")).strip()
+            if not path:
+                raise DeploymentError(f"订阅 {name} 使用本地文件模式但缺少 path。")
+            subscriptions[name] = {"source": "file", "path": path}
+            continue
+        if source != "url":
+            raise DeploymentError(f"订阅 {name} 的 source 只支持 url 或 file。")
+        url = str(item.get("url", "")).strip()
+        if not url:
+            raise DeploymentError(f"订阅 {name} 缺少 url。")
+        if not url.lower().startswith("https://"):
+            raise DeploymentError(f"订阅 {name} 不是 HTTPS URL，已停止。")
+        subscriptions[name] = {"source": "url", "url": url}
     if subscriptions:
         return subscriptions
+    if allow_empty:
+        return {}
     log("未找到订阅链接，请输入订阅链接（最少 1 个，支持多个）。")
     while True:
         url = getpass.getpass("请输入或粘贴订阅链接（不显示内容，输入后按回车，如您已完成全部订阅链接的输入，请直接按回车结束）：").strip()
@@ -461,46 +503,103 @@ def ensure_subscription_file() -> dict[str, str]:
             continue
         default_name = f"subscription_{len(subscriptions) + 1}"
         name = input("请给你刚才输入的订阅链接起个名字（任意名字均可）：").strip() or default_name
-        subscriptions[name] = url
+        subscriptions[name] = {"source": "url", "url": url}
     if not subscriptions:
         raise DeploymentError("没有可用订阅链接，已停止。")
-    write_yaml = {"subscriptions": [{"name": k, "url": v} for k, v in subscriptions.items()]}
+    write_yaml = {"subscriptions": [{"name": k, **v} for k, v in subscriptions.items()]}
     SUBSCRIPTIONS.write_text(yaml.safe_dump(write_yaml, allow_unicode=True, sort_keys=False), encoding="utf-8")
     SUBSCRIPTIONS.chmod(0o600)
     return subscriptions
 
 
-def load_nodes(subscriptions: dict[str, str]) -> list[dict[str, Any]]:
-    nodes: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, int]] = set()
-    for name, url in subscriptions.items():
-        parsed: list[dict[str, Any]] = []
-        fmt = ""
-        errors: list[str] = []
-        for user_agent in ("sing-box 1.12.0", "mihomo/1.19.16", "Mozilla/5.0"):
-            try:
-                raw = fetch_bytes(url, user_agent=user_agent)
-                fmt, parsed = classify_and_parse(name, raw)
-                if parsed:
-                    break
-            except (DeploymentError, UnsupportedSubscription) as exc:
-                errors.append(str(exc))
+def node_identity(node: dict[str, Any]) -> str:
+    """生成不含来源名和标签的稳定节点指纹，用于跨来源合并去重。"""
+    identity = copy.deepcopy(node)
+    identity.pop("source", None)
+    identity.pop("tag", None)
+    return json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def read_subscription_nodes(name: str, subscription: Any) -> tuple[str, list[dict[str, Any]]]:
+    """从单个远程或本地来源读取节点；不记录订阅正文。"""
+    if isinstance(subscription, str):
+        source_kind = "url"
+        location = subscription
+    elif isinstance(subscription, dict):
+        source_kind = str(subscription.get("source", "url")).lower()
+        location = str(subscription.get("path" if source_kind == "file" else "url", "")).strip()
+    else:
+        raise DeploymentError(f"订阅 {name} 配置格式无效。")
+    if source_kind == "file":
+        if not location:
+            raise DeploymentError(f"订阅 {name} 使用本地文件模式但缺少 path。")
+        raw = read_local_subscription(location, source=name)
+        fmt, parsed = classify_and_parse(name, raw)
         if not parsed:
-            detail = errors[-1] if errors else "没有可用节点"
-            raise DeploymentError(f"订阅 {name} 无法解析：{redact_text(detail)}")
+            raise DeploymentError(f"订阅 {name} 无法解析：没有可用节点")
+        return fmt, parsed
+    if source_kind != "url":
+        raise DeploymentError(f"订阅 {name} 的 source 只支持 url 或 file。")
+    if not location:
+        raise DeploymentError(f"订阅 {name} 缺少 url。")
+    parsed: list[dict[str, Any]] = []
+    fmt = ""
+    errors: list[str] = []
+    for user_agent in ("sing-box 1.12.0", "mihomo/1.19.16", "Mozilla/5.0"):
+        try:
+            raw = fetch_bytes(location, user_agent=user_agent)
+            fmt, parsed = classify_and_parse(name, raw)
+            if parsed:
+                break
+        except (DeploymentError, UnsupportedSubscription) as exc:
+            errors.append(str(exc))
+    if not parsed:
+        detail = errors[-1] if errors else "没有可用节点"
+        raise DeploymentError(f"订阅 {name} 无法解析：{redact_text(detail)}")
+    return fmt, parsed
+
+
+def load_nodes(subscriptions: dict[str, Any], *, allow_all_unavailable: bool = False) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    unavailable: list[str] = []
+    for name, subscription in subscriptions.items():
+        try:
+            fmt, parsed = read_subscription_nodes(name, subscription)
+        except (DeploymentError, UnsupportedSubscription) as exc:
+            if not allow_all_unavailable:
+                raise DeploymentError(redact_text(str(exc))) from exc
+            unavailable.append(name)
+            continue
         protocols: dict[str, int] = {}
         for node in parsed:
             protocols[node["type"]] = protocols.get(node["type"], 0) + 1
-            key = (node["server"], node["type"], int(node["server_port"]))
+            key = node_identity(node)
             if key in seen:
                 continue
             seen.add(key)
             node["source"] = name
             nodes.append(node)
         log(f"订阅 {name}: 格式={fmt}，节点={len(parsed)}，协议={','.join(f'{k}:{v}' for k,v in protocols.items())}")
+    if unavailable and nodes:
+        names = "、".join(unavailable)
+        raise DeploymentError(f"部分订阅来源不可用（{names}），为避免丢失节点已停止更新。")
+    if unavailable and not nodes and allow_all_unavailable:
+        log(f"当前没有可用订阅来源（{ '、'.join(unavailable) }）。")
+        return []
     if not nodes:
         raise DeploymentError("所有订阅均未解析出可用节点。")
     return nodes
+
+
+def require_existing_final_config() -> None:
+    """无新来源时确认之前生成的最终合并配置仍可被 sing-box 使用。"""
+    if not CONFIG.is_file() or CONFIG.stat().st_size == 0:
+        raise DeploymentError("没有可用的订阅链接或本地配置文件，且之前不存在最终合并配置，已停止。")
+    try:
+        validate_config(CONFIG)
+    except DeploymentError as exc:
+        raise DeploymentError("没有可用的订阅链接或本地配置文件，且之前的最终合并配置无法通过校验，已停止。") from exc
 
 
 def safe_tag(value: str) -> str:
@@ -650,7 +749,7 @@ def install_units() -> None:
         shutil.copy2(__file__, script_target)
     script_target.chmod(0o755)
     user = service_user()
-    for path in (ROOT, RULESETS):
+    for path in (ROOT, RULESETS, SUBSCRIPTION_CACHE):
         run_command(["chown", f"root:{user}", str(path)])
         path.chmod(0o750)
     run_command(["chown", f"root:{user}", str(STATE)])
@@ -658,6 +757,10 @@ def install_units() -> None:
     for path in RULESETS.glob("*.srs"):
         run_command(["chown", f"root:{user}", str(path)])
         path.chmod(0o640)
+    for path in SUBSCRIPTION_CACHE.iterdir():
+        if path.is_file():
+            run_command(["chown", f"root:{user}", str(path)])
+            path.chmod(0o640)
     if CONFIG.exists():
         run_command(["chown", f"root:{user}", str(CONFIG)])
         CONFIG.chmod(0o640)
@@ -710,13 +813,22 @@ def update(*, non_interactive: bool = False, dry_run: bool = False) -> None:
     stage_done(2, total, started)
     started = stage_start(3, total, "读取 custom_config.yaml 和订阅文件")
     ensure_custom_config()
-    if not SUBSCRIPTIONS.exists() and non_interactive:
-        raise DeploymentError("未找到订阅文件，非交互更新已停止。")
-    subscriptions = ensure_subscription_file()
+    subscriptions = ensure_subscription_file(allow_empty=True)
     custom = load_yaml(CUSTOM, {})
     stage_done(3, total, started, f"读取完成（订阅 {len(subscriptions)} 个）")
-    started = stage_start(4, total, "下载并解析订阅节点")
-    nodes = load_nodes(subscriptions)
+    if not subscriptions:
+        started = stage_start(4, total, "校验并复用已有最终合并配置")
+        require_existing_final_config()
+        stage_done(4, total, started)
+        log(f"没有新的订阅链接或本地配置文件，继续使用已有最终合并配置：{CONFIG}")
+        return
+    started = stage_start(4, total, "读取并解析订阅来源")
+    nodes = load_nodes(subscriptions, allow_all_unavailable=True)
+    if not nodes:
+        require_existing_final_config()
+        stage_done(4, total, started, "没有可用来源，继续使用已有最终合并配置")
+        log(f"当前来源均不可用，继续使用已有最终合并配置：{CONFIG}")
+        return
     stage_done(4, total, started, f"解析完成（节点 {len(nodes)} 个）")
     started = stage_start(5, total, "下载或更新本地规则集")
     rulesets = ensure_rulesets(custom)

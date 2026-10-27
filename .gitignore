@@ -36,6 +36,7 @@ env/
 # 本地运行产物和日志
 generated/
 subscription-cache/
+config_files/
 subscriptions.yaml
 subscriptions.local.yaml
 *.log
