@@ -1,6 +1,6 @@
 # Linux sing-box 自动部署与使用
 
-本项目支持机场订阅自动解析和本地配置文件上传解析，两条路径会合并去重成一份最终的配置文件，供 `sing-box` 使用。
+本项目支持机场订阅链接和本地配置文件上传解析，两条路径会合并去重成一份最终的配置文件，供 `sing-box` 使用。
 部分机场会拦截 Linux 的请求，或云服务器无法与机场订阅握手，导致订阅链接无法读取和解析，这属于外部限制，非本项目问题。推荐机场： [山海](https://shanhai.me/#/dashboard) 。
 
 ## 一、连接远程云服务器
@@ -35,7 +35,7 @@ sudo python3 sing_box_auto.py deploy
 4. 安装 `sing-box-auto.service` 和可选更新 timer；
 5. 将脚本复制到 `/usr/local/libexec/sing-box-auto.py`。
 
-部署过程中会显示 `[阶段 1/7]` 到 `[阶段 7/7]`，每个阶段结束时显示耗时。APT 安装阶段会保留包管理器输出；如果某一阶段长时间没有结束，可以根据最后一个阶段判断卡在环境检查、软件包下载、订阅输入还是 systemd 配置。
+部署过程中会显示 `[阶段 1/7]` 到 `[阶段 7/7]`，每个阶段结束时显示耗时。APT 安装阶段会保留包管理器输出；如果某一阶段长时间没有结束，可以根据最后一个阶段判断卡在环境检查、软件包下载、订阅输入还是 systemd 配置，可以按 `Ctrl + C` 终止任务，然后重新执行 `deploy`。
 
 如果没有保存过订阅，脚本会交互式询问：
 
@@ -43,7 +43,7 @@ sudo python3 sing_box_auto.py deploy
 2. `请给你刚才输入的订阅链接起个名字...`：输入 `shanhai`；
 3. 再次询问订阅链接时直接按回车结束。
 
-> **建议优先尝试机场订阅地址能否解析成功，输入一个订阅链接，也可以连续输入多个订阅。如果无法解析成功，再考虑本地配置上传的方案**
+> **建议优先尝试机场订阅地址能否解析成功，输入一个或多个订阅。如果无法解析成功，再考虑本地配置上传的方案**
 
 ## 四、优先使用订阅链接
 
@@ -60,102 +60,65 @@ sudo python3 /usr/local/libexec/sing-box-auto.py update
 
 ## 五、订阅失败时上传本地配置
 
-本节的操作分为 **Mac 本地终端** 和 **Linux 服务器终端**。不要在 Linux 上用编辑器手工修改
-`subscriptions.yaml`；在 Mac 准备好文件后上传，服务器只执行 `install` 命令。
+本节的操作分为 **Mac 本地终端** 和 **Linux 服务器终端**。
+配置文件正文在 Mac 准备并上传；来源清单按下面的 heredoc 命令在 Linux 一次性生成，不需要使用编辑器逐行修改。
 
-### 5.1 在 Mac 准备本地配置文件
+### 5.1 在 Mac 准备本地配置文件（本教程以 Karing 为例）
 
-如果已经有本地 Sing-box JSON，例如项目中的 `config_files/shanhai.json`，可以直接上传；也可以先通过 Karing 的 SOCKS5 下载订阅正文。端口以实际配置为准，历史上常见为 `7892`：
-
-```bash
-curl -x socks5h://127.0.0.1:7892 \
-  -fsSL -A 'sing-box 1.12.0' \
-  'https://YOUR_SUBSCRIPTION_HOST/YOUR_SUBSCRIPTION_PATH' \
-  -o /tmp/shanhai.body
-```
+打开 `Karing` -> `我的配置` -> `选中某一配置` -> `点击分享按钮` -> `拷贝` -> `在 Mac Finder 任意找一文件夹` -> `粘贴`
 
 ### 5.2 从 Mac 上传到服务器临时目录
 
-下面的路径只是示例，替换为实际服务器地址和本地文件路径；不要把订阅正文粘贴到聊天中：
+通过 `Termius` 等工具 `SFTP` 将配置文件上传到 Linux 云服务器的 `Home` 目录
 
-```bash
-scp /path/to/shanhai.json \
-  ubuntu@SERVER_IP:/tmp/shanhai.json
-```
-
-如果使用刚才通过 Karing 下载的正文：
-
-```bash
-scp /tmp/shanhai.body \
-  ubuntu@SERVER_IP:/tmp/shanhai.body
-```
-
-可以重复上传多个文件，例如 `shanhai.json` 和 `yep.json`。每个文件都要有不同的目标文件名。
+可以重复上传多个文件，例如 `shanhai.json` 和 `yep.json`。
 
 ### 5.3 在 Linux 安装本地配置文件
 
-以下命令把临时上传文件移动到服务使用的受保护目录，并设置 `root:sing-box` 和 `0640` 权限：
+以下命令把上传文件移动到服务使用的受保护目录，并设置 `root:sing-box` 和 `0640` 权限。文件名和路径要按实际上传的文件填写。
 
 ```bash
-sudo install -d -m 0770 -o root -g sing-box \
-  /var/lib/sing-box-auto/subscriptions-cache
-
-sudo install -m 0640 -o root -g sing-box \
-  /tmp/shanhai.json \
-  /var/lib/sing-box-auto/subscriptions-cache/shanhai.json
-
-rm -f /tmp/shanhai.json
+sudo install -d -m 0770 -o root -g sing-box /var/lib/sing-box-auto/subscriptions-cache && \
+sudo install -m 0640 -o root -g sing-box ~/shanhai.json /var/lib/sing-box-auto/subscriptions-cache/shanhai.json && \
+rm -f ~/shanhai.json
 ```
 
-如果上传的是 `shanhai.body`，将上面命令中的文件名相应替换为 `shanhai.body`。
+### 5.4 在 Linux 准备来源清单
 
-### 5.4 在 Mac 准备来源清单并上传
-
-在 Mac 本地创建一个不含订阅正文的清单文件：
+在 Linux 服务器终端创建来源清单。默认只启用已经上传的 `shanhai.json`，不要保留不存在的文件或不可访问的订阅地址：
 
 ```bash
-cat > /tmp/subscriptions-local.yaml <<'EOF'
+cat > ~/subscriptions.yaml <<'EOF'
 subscriptions:
-  - name: shanhai-local
+  - name: shanhai-local  # 按需修改，任意名称
     source: file
-    path: /var/lib/sing-box-auto/subscriptions-cache/shanhai.json
+    path: /var/lib/sing-box-auto/subscriptions-cache/shanhai.json  # 按需修改，必须跟实际上传文件的路径一致
 EOF
 ```
 
-如果第 5.3 步安装的是 `shanhai.body`，这里的 `path` 也必须写成
-`/var/lib/sing-box-auto/subscriptions-cache/shanhai.body`。清单中的路径必须和服务器上的实际文件名完全一致。
-
-如果有多个本地文件，继续添加条目，例如：
+如果还上传了 `yep.json`，在 `shanhai-local` 条目后增加：
 
 ```yaml
-subscriptions:
-  - name: shanhai-local
-    source: file
-    path: /var/lib/sing-box-auto/subscriptions-cache/shanhai.json
-  - name: yep-local
+  - name: yep-local  # 任意名称
     source: file
     path: /var/lib/sing-box-auto/subscriptions-cache/yep.json
 ```
 
-如果还要合并一个可访问的订阅链接，可以在这个清单中继续加入 `url: https://...` 条目；不要把真实链接、token 或节点内容写进项目仓库。
+如果还要合并一个当前可以访问的订阅链接，增加：
 
-将清单上传到服务器临时目录：
-
-```bash
-scp /tmp/subscriptions-local.yaml \
-  ubuntu@SERVER_IP:/tmp/subscriptions-local.yaml
-rm -f /tmp/subscriptions-local.yaml
+```yaml
+  - name: another-remote  # 任意名称
+    source: url
+    url: https://YOUR_SUBSCRIPTION_HOST/YOUR_SUBSCRIPTION_PATH
 ```
+
+只有在文件确实已上传、订阅链接确实可访问时才保留对应条目。不要把真实链接、token 或节点内容写进项目仓库。
 
 ### 5.5 在 Linux 安装来源清单并生成配置
 
 ```bash
-sudo install -m 0600 -o root -g root \
-  /tmp/subscriptions-local.yaml \
-  /etc/sing-box-auto/subscriptions.yaml
-
-rm -f /tmp/subscriptions-local.yaml
-
+sudo install -m 0600 -o root -g root ~/subscriptions.yaml /etc/sing-box-auto/subscriptions.yaml && \
+rm -f ~/subscriptions.yaml && \
 sudo python3 /usr/local/libexec/sing-box-auto.py update
 ```
 
@@ -170,8 +133,8 @@ sing-box 服务始终读取这份最终配置。若所有来源暂时不可用�
 ## 六、检查服务和代理
 
 ```bash
-sudo systemctl enable --now sing-box-auto
-sudo systemctl status sing-box-auto --no-pager
+sudo systemctl enable --now sing-box-auto && \
+sudo systemctl status sing-box-auto --no-pager && \
 sudo ss -lntp | grep ':1080'
 ```
 
@@ -184,9 +147,7 @@ sudo ss -lntp | grep ':1080'
 服务器本机测试代理：
 
 ```bash
-curl -x socks5h://127.0.0.1:1080 \
-  --max-time 20 \
-  -I https://www.gstatic.com/generate_204
+curl -x socks5h://127.0.0.1:1080 --max-time 20 -I https://www.gstatic.com/generate_204
 ```
 
 返回 HTTP 204 或其他成功响应，表示代理链路正常。
@@ -238,9 +199,7 @@ run_case "默认代理" "https://www.wikipedia.org" proxy
 查看当前 `all_auto` 的实际出口 IP：
 
 ```bash
-curl -x http://127.0.0.1:1080 \
-  --max-time 20 \
-  -fsS https://api.ipify.org
+curl -x http://127.0.0.1:1080 --max-time 20 -fsS https://api.ipify.org
 echo
 ```
 
@@ -366,16 +325,13 @@ GitHub 相关规则集下载统一经过 `gh-proxy.org`。默认规则使用 Sag
 rm -f sing_box_auto.py custom_config.yaml
 ```
 
-如果需要修改分流规则，请在 Mac 本地修改项目中的 `custom_config.yaml`，然后上传并安装：
+## 十六、分流规则更新
+
+如果需要修改分流规则，请在 Mac 本地修改项目中的 `custom_config.yaml`，然后提交并推送到 `GitHub`
 
 ```bash
-# Mac 本地终端
-scp /path/to/custom_config.yaml ubuntu@SERVER_IP:/tmp/custom_config.yaml
-
-# Linux 服务器终端
-sudo install -m 0640 -o root -g sing-box \
-  /tmp/custom_config.yaml \
-  /etc/sing-box-auto/custom_config.yaml
-rm -f /tmp/custom_config.yaml
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/hejch20108/linux-proxy/main/custom_config.yaml -o "custom_config.yaml" && \
+sudo install -m 0640 -o root -g sing-box custom_config.yaml /etc/sing-box-auto/custom_config.yaml && \
+rm -f custom_config.yaml && \
 sudo python3 /usr/local/libexec/sing-box-auto.py update
 ```
