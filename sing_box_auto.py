@@ -48,6 +48,7 @@ SERVICE_NAME = "sing-box-auto"
 SERVICE_UNIT = Path("/etc/systemd/system/sing-box-auto.service")
 TIMER_UNIT = Path("/etc/systemd/system/sing-box-auto-update.timer")
 MAX_SUBSCRIPTION_BYTES = 8 * 1024 * 1024
+SUBSCRIPTION_FETCH_TIMEOUT = 10
 SUPPORTED_PROTOCOLS = {"anytls", "vless"}
 IGNORED_CLASH_TYPES = {"direct", "reject", "dns", "selector", "url-test", "load-balance"}
 
@@ -547,7 +548,7 @@ def read_subscription_nodes(name: str, subscription: Any) -> tuple[str, list[dic
     errors: list[str] = []
     for user_agent in ("sing-box 1.12.0", "mihomo/1.19.16", "Mozilla/5.0"):
         try:
-            raw = fetch_bytes(location, user_agent=user_agent)
+            raw = fetch_bytes(location, timeout=SUBSCRIPTION_FETCH_TIMEOUT, user_agent=user_agent)
             fmt, parsed = classify_and_parse(name, raw)
             if parsed:
                 break
