@@ -1,0 +1,48 @@
+# Linux sing-box 默认分流配置。订阅节点由 sing_box_auto.py 动态生成。
+listen:
+  address: 127.0.0.1
+  port: 1080
+
+urltest:
+  url: https://www.gstatic.com/generate_204
+  interval: 3m
+  tolerance: 50
+  idle_timeout: 30m
+
+rule_sets:
+  geoip-cn:
+    url: https://gh-proxy.org/https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs
+  geosite-cn:
+    url: https://gh-proxy.org/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs
+
+groups:
+  - tag: us_auto
+    region_keywords: ["美国", "美國", "US", "🇺🇸"]
+  - tag: sg_auto
+    region_keywords: ["新加坡", "🇸🇬", "Singapore"]
+  - tag: tw_auto
+    region_keywords: ["台湾", "台灣", "🇹🇼", "TW"]
+  - tag: uk_auto
+    region_keywords: ["英国", "英國", "🇬🇧", "UK"]
+
+rules:
+  - name: 广告拦截
+    domain: [ads.google.com, googleadservices.com]
+    outbound: block
+  - name: 美国
+    domain: [gemini.google.com, aistudio.google.com, gfiber.com]
+    domain_suffix: [.openai.com, .chatgpt.com, .claude.ai, .claude.com, .anthropic.com, .frame.claudeusercontent.com, .bridge.claudeusercontent.com, .italkbbtv.com, .tiktok.com, .ai-member.icu, .physicaladdress.com]
+    outbound: us_auto
+  - name: 新加坡
+    domain: [ocbc.com]
+    outbound: sg_auto
+  - name: 台湾
+    domain_suffix: [.okx.com]
+    outbound: tw_auto
+  - name: 英国
+    domain_suffix: [.uk]
+    outbound: uk_auto
+  - name: 国内直连
+    domain: [cesu.topway.cn]
+    domain_suffix: [.topway.cn]
+    outbound: direct

@@ -1,0 +1,55 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# 历史资料和本地归档，可能包含订阅、节点凭据或个人配置
+archive/
+
+# 测试临时目录；正式测试代码保留在 tests/
+test/
+tmp/
+temp/
+
+# Python 缓存、测试和构建产物
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# 本地运行产物和日志
+generated/
+subscription-cache/
+subscriptions.yaml
+subscriptions.local.yaml
+*.log
+*.tmp
+*.bak
+*.swp
+
+# 本地编辑器和 IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# 压缩包和系统临时文件
+*.zip
+*.tar
+*.tar.gz
+*.tgz
