@@ -122,7 +122,7 @@ rm -f ~/subscriptions.yaml && \
 sudo python3 /usr/local/libexec/sing-box-auto.py update
 ```
 
-本地文件、订阅链接和多个本地文件会统一解析，按完整节点参数去重，最后只生成一份：
+本地文件、订阅链接和多个本地文件会统一解析，按连接参数去重；节点标签、来源名称和导入配置中的 DNS 解析器标签不参与去重，最后只生成一份：
 
 ```text
 /etc/sing-box-auto/config.json

@@ -514,10 +514,13 @@ def ensure_subscription_file(*, allow_empty: bool = False) -> dict[str, dict[str
 
 
 def node_identity(node: dict[str, Any]) -> str:
-    """生成不含来源名和标签的稳定节点指纹，用于跨来源合并去重。"""
+    """生成连接参数指纹，用于跨来源合并去重。"""
     identity = copy.deepcopy(node)
     identity.pop("source", None)
     identity.pop("tag", None)
+    # 订阅导出的 DNS 标签属于来源客户端的元数据；生成配置时会统一
+    # 绑定到本项目的 local DNS，因此不应阻止同一节点跨来源去重。
+    identity.pop("domain_resolver", None)
     return json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
@@ -573,6 +576,7 @@ def load_nodes(subscriptions: dict[str, Any], *, allow_all_unavailable: bool = F
             unavailable.append(name)
             continue
         protocols: dict[str, int] = {}
+        before_count = len(nodes)
         for node in parsed:
             protocols[node["type"]] = protocols.get(node["type"], 0) + 1
             key = node_identity(node)
@@ -581,7 +585,12 @@ def load_nodes(subscriptions: dict[str, Any], *, allow_all_unavailable: bool = F
             seen.add(key)
             node["source"] = name
             nodes.append(node)
-        log(f"订阅 {name}: 格式={fmt}，节点={len(parsed)}，协议={','.join(f'{k}:{v}' for k,v in protocols.items())}")
+        added_count = len(nodes) - before_count
+        duplicate_count = len(parsed) - added_count
+        log(
+            f"订阅 {name}: 格式={fmt}，解析={len(parsed)}，新增={added_count}，"
+            f"去重={duplicate_count}，协议={','.join(f'{k}:{v}' for k,v in protocols.items())}"
+        )
     if unavailable and nodes:
         names = "、".join(unavailable)
         log(f"部分订阅来源不可用（{names}），继续使用可用来源更新。")

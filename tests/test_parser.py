@@ -102,6 +102,28 @@ class ParserTests(unittest.TestCase):
       nodes = app.load_nodes({"local": {"source": "file", "path": str(path)}})
     self.assertEqual([node["tag"] for node in nodes], ["first", "different"])
 
+  def test_merge_dedup_ignores_imported_dns_resolver(self):
+    def make_raw(tag, resolver):
+      return json.dumps({"outbounds": [{
+          "type": "anytls",
+          "tag": tag,
+          "server": "same.example",
+          "server_port": 443,
+          "password": "same-secret",
+          "domain_resolver": {"server": resolver, "strategy": "ipv4_only"},
+      }]}).encode()
+
+    with tempfile.TemporaryDirectory() as directory:
+      first = Path(directory) / "first.json"
+      second = Path(directory) / "second.json"
+      first.write_bytes(make_raw("first", "dns_outbound_out"))
+      second.write_bytes(make_raw("second", "local"))
+      nodes = app.load_nodes({
+          "first": {"source": "file", "path": str(first)},
+          "second": {"source": "file", "path": str(second)},
+      })
+    self.assertEqual(len(nodes), 1)
+
   def test_missing_sources_require_existing_final_config(self):
     with tempfile.TemporaryDirectory() as directory:
       path = Path(directory) / "config.json"
