@@ -228,6 +228,46 @@ class ParserTests(unittest.TestCase):
     self.assertTrue({"all_auto", "us_auto", "sg_auto", "tw_auto", "uk_auto"}.issubset(groups))
     self.assertEqual(config["route"]["final"], "all_auto")
 
+  def test_us_ai_group_uses_openai_url_and_exact_region_matching(self):
+    custom = app.load_yaml(app.LOCAL_CUSTOM, {})
+    region_tags = [
+        "美国 01", "日本 02", "台湾 03", "新加坡 04", "马来西亚 05", "泰国 06",
+        "越南 07", "印度尼西亚 08", "澳大利亚 09", "英国 10", "德国 11",
+    ]
+    nodes = [
+        {"type": "anytls", "tag": tag, "server": f"{index}.example", "server_port": 443,
+         "password": "x", "tls": {"enabled": True}}
+        for index, tag in enumerate(region_tags, 1)
+    ]
+    nodes.append({"type": "anytls", "tag": "韩国 12", "server": "12.example", "server_port": 443,
+                  "password": "x", "tls": {"enabled": True}})
+    nodes.append({"type": "anytls", "tag": "Australia 13", "server": "13.example", "server_port": 443,
+                  "password": "x", "tls": {"enabled": True}})
+    config = app.build_config(nodes, custom, {})
+    outbounds = {item["tag"]: item for item in config["outbounds"] if item["type"] == "urltest"}
+    self.assertEqual(outbounds["us_ai"]["url"], "https://developers.openai.com/api/docs")
+    self.assertEqual(len(outbounds["us_ai"]["outbounds"]), len(region_tags) + 1)
+    self.assertNotIn("node_012_12", outbounds["us_ai"]["outbounds"])
+    self.assertIn("node_013_Australia_13", outbounds["us_ai"]["outbounds"])
+    self.assertNotIn("node_013_Australia_13", outbounds["us_auto"]["outbounds"])
+    self.assertEqual(outbounds["all_auto"]["url"], "https://www.gstatic.com/generate_204")
+
+  def test_ai_rules_use_us_ai_and_keep_other_services_on_us_auto(self):
+    custom = app.load_yaml(app.LOCAL_CUSTOM, {})
+    nodes = [
+        {"type": "anytls", "tag": tag, "server": f"{index}.example", "server_port": 443,
+         "password": "x", "tls": {"enabled": True}}
+        for index, tag in enumerate(["美国 01", "新加坡 02", "台湾 03", "英国 04"], 1)
+    ]
+    config = app.build_config(nodes, custom, {})
+    routes = config["route"]["rules"]
+    by_outbound = {rule["outbound"]: rule for rule in routes if "outbound" in rule}
+    self.assertIn("openai.com", by_outbound["us_ai"]["domain"])
+    self.assertIn("chatgpt.com", by_outbound["us_ai"]["domain"])
+    self.assertIn(".openai.com", by_outbound["us_ai"]["domain_suffix"])
+    self.assertIn("gfiber.com", by_outbound["us_auto"]["domain"])
+    self.assertIn("tiktok.com", by_outbound["us_auto"]["domain"])
+
   def test_build_config_rebinds_imported_dns_resolver(self):
     custom = {"listen": {"address": "127.0.0.1", "port": 1080}, "groups": [], "rules": []}
     nodes = [{

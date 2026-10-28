@@ -72,6 +72,9 @@ rule_sets:
 groups:
   - tag: us_auto
     region_keywords: ["美国", "美國", "US", "🇺🇸"]
+  - tag: us_ai
+    region_keywords: ["美国", "美國", "United States", "USA", "US", "🇺🇸", "日本", "Japan", "JP", "🇯🇵", "台湾", "台灣", "Taiwan", "TW", "🇹🇼", "新加坡", "Singapore", "SG", "🇸🇬", "马来西亚", "馬來西亞", "Malaysia", "MY", "🇲🇾", "泰国", "泰國", "Thailand", "TH", "🇹🇭", "越南", "Vietnam", "VN", "🇻🇳", "印度尼西亚", "印尼", "Indonesia", "ID", "🇮🇩", "澳大利亚", "澳洲", "Australia", "AU", "🇦🇺", "英国", "英國", "United Kingdom", "UK", "GB", "🇬🇧", "德国", "德國", "Germany", "DE", "🇩🇪"]
+    url: https://developers.openai.com/api/docs
   - tag: sg_auto
     region_keywords: ["新加坡", "🇸🇬", "Singapore"]
   - tag: tw_auto
@@ -83,9 +86,13 @@ rules:
   - name: 广告拦截
     domain: [ads.google.com, googleadservices.com]
     outbound: block
-  - name: 美国 AI 和指定服务
-    domain: [gemini.google.com, aistudio.google.com, gfiber.com]
-    domain_suffix: [.openai.com, .chatgpt.com, .claude.ai, .claude.com, .anthropic.com, .frame.claudeusercontent.com, .bridge.claudeusercontent.com, .italkbbtv.com, .tiktok.com, .ai-member.icu, .physicaladdress.com]
+  - name: 美国 AI 服务
+    domain: [openai.com, chatgpt.com, claude.ai, claude.com, anthropic.com, frame.claudeusercontent.com, bridge.claudeusercontent.com, gemini.google.com, aistudio.google.com]
+    domain_suffix: [.openai.com, .chatgpt.com, .claude.ai, .claude.com, .anthropic.com, .frame.claudeusercontent.com, .bridge.claudeusercontent.com]
+    outbound: us_ai
+  - name: 美国及其他指定服务
+    domain: [gfiber.com, tiktok.com]
+    domain_suffix: [.tiktok.com]
     outbound: us_auto
   - name: 新加坡服务
     domain: [ocbc.com]
@@ -696,8 +703,19 @@ def ensure_rulesets(custom: dict[str, Any]) -> dict[str, Path]:
 
 
 def node_region(node: dict[str, Any], keywords: list[str]) -> bool:
-    tag = str(node.get("tag", "")).lower()
-    return any(str(k).lower() in tag for k in keywords)
+    tag = str(node.get("tag", "")).casefold()
+    for keyword in keywords:
+        value = str(keyword).strip().casefold()
+        if not value:
+            continue
+        # 英文国家名和代码按词边界匹配，避免 US 命中 Australia、Russia 等标签；
+        # 数字、下划线和连字符可以继续作为节点编号或分隔符。
+        if value.isascii() and any("a" <= char <= "z" for char in value):
+            if re.search(rf"(?<![a-z]){re.escape(value)}(?![a-z])", tag):
+                return True
+        elif value in tag:
+            return True
+    return False
 
 
 def build_config(nodes: list[dict[str, Any]], custom: dict[str, Any], ruleset_paths: dict[str, Path]) -> dict[str, Any]:
@@ -727,11 +745,17 @@ def build_config(nodes: list[dict[str, Any]], custom: dict[str, Any], ruleset_pa
         if not groups[str(group["tag"])]:
             log(f"节点组 {group['tag']} 没有匹配节点，将在配置中省略。")
     active_groups = {tag for tag, members in groups.items() if members}
+    default_url = str(urltest.get("url", "https://www.gstatic.com/generate_204"))
     for tag, members in groups.items():
         if not members:
             continue
+        group_config = next(
+            (item for item in (custom.get("groups") or [])
+             if isinstance(item, dict) and str(item.get("tag", "")) == tag),
+            {},
+        )
         outbounds.append({"type": "urltest", "tag": tag, "outbounds": members,
-                          "url": urltest.get("url", "https://www.gstatic.com/generate_204"),
+                          "url": str(group_config.get("url") or default_url),
                           "interval": urltest.get("interval", "3m"),
                           "tolerance": int(urltest.get("tolerance", 50)),
                           "idle_timeout": urltest.get("idle_timeout", "30m"),

@@ -18,6 +18,9 @@ rule_sets:
 groups:
   - tag: us_auto
     region_keywords: ["美国", "美國", "US", "🇺🇸"]
+  - tag: us_ai
+    region_keywords: ["美国", "美國", "United States", "USA", "US", "🇺🇸", "日本", "Japan", "JP", "🇯🇵", "台湾", "台灣", "Taiwan", "TW", "🇹🇼", "新加坡", "Singapore", "SG", "🇸🇬", "马来西亚", "馬來西亞", "Malaysia", "MY", "🇲🇾", "泰国", "泰國", "Thailand", "TH", "🇹🇭", "越南", "Vietnam", "VN", "🇻🇳", "印度尼西亚", "印尼", "Indonesia", "ID", "🇮🇩", "澳大利亚", "澳洲", "Australia", "AU", "🇦🇺", "英国", "英國", "United Kingdom", "UK", "GB", "🇬🇧", "德国", "德國", "Germany", "DE", "🇩🇪"]
+    url: https://developers.openai.com/api/docs
   - tag: sg_auto
     region_keywords: ["新加坡", "🇸🇬", "Singapore"]
   - tag: tw_auto
@@ -29,12 +32,17 @@ rules:
   - name: 广告拦截
     domain: [ads.google.com, googleadservices.com]
     outbound: block
-  - name: 美国
-    domain: [gemini.google.com, aistudio.google.com, gfiber.com, claude.ai, claude.com, openai.com, chatgpt.com, anthropic.com]
-    domain_suffix: [.openai.com, .chatgpt.com, .claude.ai, .claude.com, .anthropic.com, .frame.claudeusercontent.com, .bridge.claudeusercontent.com, .italkbbtv.com, .tiktok.com, .ai-member.icu, .physicaladdress.com]
+  - name: 美国 AI 服务
+    domain: [openai.com, chatgpt.com, claude.ai, claude.com, anthropic.com, frame.claudeusercontent.com, bridge.claudeusercontent.com, gemini.google.com, aistudio.google.com]
+    domain_suffix: [.openai.com, .chatgpt.com, .claude.ai, .claude.com, .anthropic.com, .frame.claudeusercontent.com, .bridge.claudeusercontent.com]
+    outbound: us_ai
+  - name: 美国及其他指定服务
+    domain: [gfiber.com, tiktok.com]
+    domain_suffix: [.tiktok.com]
     outbound: us_auto
   - name: 新加坡
     domain: [ocbc.com]
+    domain_suffix: [.ocbc.com]
     outbound: sg_auto
   - name: 台湾
     domain_suffix: [.okx.com]
