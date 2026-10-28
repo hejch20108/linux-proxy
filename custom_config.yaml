@@ -30,7 +30,7 @@ rules:
     domain: [ads.google.com, googleadservices.com]
     outbound: block
   - name: 美国
-    domain: [gemini.google.com, aistudio.google.com, gfiber.com]
+    domain: [gemini.google.com, aistudio.google.com, gfiber.com, claude.ai, claude.com]
     domain_suffix: [.openai.com, .chatgpt.com, .claude.ai, .claude.com, .anthropic.com, .frame.claudeusercontent.com, .bridge.claudeusercontent.com, .italkbbtv.com, .tiktok.com, .ai-member.icu, .physicaladdress.com]
     outbound: us_auto
   - name: 新加坡
