@@ -584,7 +584,7 @@ def load_nodes(subscriptions: dict[str, Any], *, allow_all_unavailable: bool = F
         log(f"订阅 {name}: 格式={fmt}，节点={len(parsed)}，协议={','.join(f'{k}:{v}' for k,v in protocols.items())}")
     if unavailable and nodes:
         names = "、".join(unavailable)
-        raise DeploymentError(f"部分订阅来源不可用（{names}），为避免丢失节点已停止更新。")
+        log(f"部分订阅来源不可用（{names}），继续使用可用来源更新。")
     if unavailable and not nodes and allow_all_unavailable:
         log(f"当前没有可用订阅来源（{ '、'.join(unavailable) }）。")
         return []

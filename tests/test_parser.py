@@ -116,18 +116,18 @@ class ParserTests(unittest.TestCase):
     )
     self.assertEqual(nodes, [])
 
-  def test_partial_source_failure_does_not_silently_drop_nodes(self):
+  def test_partial_source_failure_keeps_available_nodes(self):
     raw = json.dumps({"outbounds": [
         {"type": "anytls", "tag": "available", "server": "example.com", "server_port": 443, "password": "secret"},
     ]}).encode()
     with tempfile.TemporaryDirectory() as directory:
       path = Path(directory) / "subscription.json"
       path.write_bytes(raw)
-      with self.assertRaisesRegex(app.DeploymentError, "部分订阅来源不可用"):
-        app.load_nodes({
-            "available": {"source": "file", "path": str(path)},
-            "missing": {"source": "file", "path": "/definitely/missing.body"},
-        }, allow_all_unavailable=True)
+      nodes = app.load_nodes({
+          "available": {"source": "file", "path": str(path)},
+          "missing": {"source": "file", "path": "/definitely/missing.body"},
+      }, allow_all_unavailable=True)
+    self.assertEqual([node["tag"] for node in nodes], ["available"])
 
 
   def test_redaction(self):

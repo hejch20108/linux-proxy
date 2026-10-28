@@ -54,9 +54,9 @@ sudo python3 /usr/local/libexec/sing-box-auto.py update
 ```
 
 `update` 会读取订阅、解析节点、下载规则集、生成最终配置、执行 `sing-box check`，然后重启服务。
-订阅下载每次尝试的超时为 10 秒；失败时不会覆盖已有的最终配置。
+订阅下载每次尝试的超时为 10 秒；只有至少一个来源成功时才会生成新配置，所有来源都失败时才复用已有最终配置。
 
-如果第 4 阶段显示订阅来源不可用，或云服务器无法访问订阅入口，转到下一节的本地上传方案。
+如果第 4 阶段显示所有订阅来源都不可用，或云服务器无法访问订阅入口，转到下一节的本地上传方案。若远程订阅失败但本地文件成功，更新会继续使用本地文件。
 
 ## 五、订阅失败时上传本地配置
 
@@ -79,7 +79,7 @@ sudo python3 /usr/local/libexec/sing-box-auto.py update
 
 ```bash
 sudo install -d -m 0770 -o root -g sing-box /var/lib/sing-box-auto/subscriptions-cache && \
-sudo install -m 0640 -o root -g sing-box ~/shanhai.json /var/lib/sing-box-auto/subscriptions-cache/shanhai.json && \
+sudo install -m 0640 -o root -g sing-box ~/shanhai.json /var/lib/sing-box-auto/subscriptions-cache/ && \
 rm -f ~/shanhai.json
 ```
 
@@ -128,7 +128,7 @@ sudo python3 /usr/local/libexec/sing-box-auto.py update
 /etc/sing-box-auto/config.json
 ```
 
-sing-box 服务始终读取这份最终配置。若所有来源暂时不可用，会复用之前通过校验的最终配置；若只有部分来源可用，更新会停止并保留旧配置，避免静默丢失节点。若没有任何可用来源且不存在可用旧配置，会明确报错。
+sing-box 服务始终读取这份最终配置。若部分来源暂时不可用，更新会记录不可用来源并继续使用成功来源；若所有来源暂时不可用，会复用之前通过校验的最终配置。若没有任何可用来源且不存在可用旧配置，会明确报错。
 
 ## 六、检查服务和代理
 
