@@ -79,10 +79,10 @@ sudo python3 /usr/local/libexec/sing-box-auto.py update
 
 以下命令把上传文件移动到服务使用的受保护目录，并设置 `root:sing-box` 和 `0640` 权限。
 
-**文件名和路径要按实际上传的文件填写。** 即 `~/shanhai.json` 部分，如有多个文件，可以在 `~/shanhai.json` 后面空格增加。
+**文件名和路径要按实际上传的文件填写。** 即下方 `~/shanhai.json` 两处位置，如有多个文件，可以在 `~/shanhai.json` 两处位置后面空格增加。
 
 ```bash
-sudo install -d -m 0770 -o root -g sing-box /var/lib/sing-box-auto/subscriptions-cache && \
+sudo install -d -m 0750 -o root -g sing-box /var/lib/sing-box-auto/subscriptions-cache && \
 sudo install -m 0640 -o root -g sing-box ~/shanhai.json /var/lib/sing-box-auto/subscriptions-cache/ && \
 rm -f ~/shanhai.json
 ```
@@ -96,13 +96,13 @@ cat > ~/subscriptions.yaml <<'EOF'
 subscriptions:
   - name: shanhai-remote  # 远程订阅名称(任意名称)
     source: url
-    source_group: shanhai  # 组别(用于识别是否同一个服务提供商)
+    source_group: shanhai  # 组别(用于识别同一个订阅的不同获取方式)
     priority: 10  # 统一组别数字越小优先级越高(建议优先 URL 订阅链接的方式)
     url: "https://YOUR_SUBSCRIPTION_HOST/YOUR_SUBSCRIPTION_PATH"  # 订阅链接
 
   - name: shanhai-local  # 本地配置文件名称(任意名称)
     source: file
-    source_group: shanhai  # 组别(用于识别是否同一个服务提供商)
+    source_group: shanhai  # 组别(用于识别同一个订阅的不同获取方式)
     priority: 20  # 统一组别数字越小优先级越高
     path: /var/lib/sing-box-auto/subscriptions-cache/shanhai.json  # 路径必须跟实际保存路径一致
 
@@ -281,7 +281,7 @@ sudo systemctl disable sing-box-auto
 sudo systemctl status sing-box-auto --no-pager
 ```
 
-## 十二、回滚
+## 十一、回滚
 
 如果更新失败且目录中保留了本次更新前的配置备份，可以尝试：
 
@@ -291,7 +291,7 @@ sudo python3 /usr/local/libexec/sing-box-auto.py rollback
 
 如果没有可用备份，先查看日志，不要删除 `/etc/sing-box-auto` 或 `/var/lib/sing-box-auto`。
 
-## 十三、配置和权限
+## 十二、配置和权限
 
 | 路径 | 用途与权限 |
 | --- | --- |
@@ -306,7 +306,7 @@ sudo python3 /usr/local/libexec/sing-box-auto.py rollback
 
 服务由 `sing-box` 用户运行。更新脚本会自动设置生成配置和规则集的读取权限，以及运行缓存目录的写入权限。
 
-## 十四、支持范围
+## 十三、支持范围
 
 支持识别：
 
