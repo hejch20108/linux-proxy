@@ -90,6 +90,23 @@ class ParserTests(unittest.TestCase):
     self.assertEqual(subscriptions["remote"], {"source": "url", "url": "https://example.test/sub"})
     self.assertEqual(subscriptions["local"]["source"], "file")
 
+  def test_subscription_yaml_accepts_source_group_and_priority(self):
+    with tempfile.TemporaryDirectory() as directory:
+      path = Path(directory) / "subscriptions.yaml"
+      path.write_text(
+          "subscriptions:\n"
+          "  - name: remote\n"
+          "    source: url\n"
+          "    source_group: shanhai\n"
+          "    priority: 10\n"
+          "    url: https://example.test/sub\n",
+          encoding="utf-8",
+      )
+      with mock.patch.object(app, "SUBSCRIPTIONS", path):
+        subscriptions = app.ensure_subscription_file()
+    self.assertEqual(subscriptions["remote"]["source_group"], "shanhai")
+    self.assertEqual(subscriptions["remote"]["priority"], 10)
+
   def test_merge_dedup_keeps_different_credentials(self):
     raw = json.dumps({"outbounds": [
         {"type": "anytls", "tag": "first", "server": "same.example", "server_port": 443, "password": "one"},
@@ -150,6 +167,36 @@ class ParserTests(unittest.TestCase):
           "missing": {"source": "file", "path": "/definitely/missing.body"},
       }, allow_all_unavailable=True)
     self.assertEqual([node["tag"] for node in nodes], ["available"])
+
+  def test_source_group_falls_back_to_next_priority(self):
+    raw = json.dumps({"outbounds": [
+        {"type": "anytls", "tag": "local", "server": "example.com", "server_port": 443, "password": "secret"},
+    ]}).encode()
+    with tempfile.TemporaryDirectory() as directory:
+      path = Path(directory) / "local.json"
+      path.write_bytes(raw)
+      nodes = app.load_nodes({
+          "remote": {"source": "file", "source_group": "shanhai", "priority": 10, "path": "/missing/remote.json"},
+          "local": {"source": "file", "source_group": "shanhai", "priority": 20, "path": str(path)},
+      }, allow_all_unavailable=True)
+    self.assertEqual([node["tag"] for node in nodes], ["local"])
+
+  def test_source_group_uses_only_successful_priority_source(self):
+    def raw(tag):
+      return json.dumps({"outbounds": [
+          {"type": "anytls", "tag": tag, "server": f"{tag}.example", "server_port": 443, "password": tag},
+      ]}).encode()
+
+    with tempfile.TemporaryDirectory() as directory:
+      first = Path(directory) / "first.json"
+      second = Path(directory) / "second.json"
+      first.write_bytes(raw("first"))
+      second.write_bytes(raw("second"))
+      nodes = app.load_nodes({
+          "first": {"source": "file", "source_group": "same", "priority": 10, "path": str(first)},
+          "second": {"source": "file", "source_group": "same", "priority": 20, "path": str(second)},
+      })
+    self.assertEqual([node["tag"] for node in nodes], ["first"])
 
 
   def test_redaction(self):

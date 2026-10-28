@@ -60,22 +60,21 @@ sudo python3 /usr/local/libexec/sing-box-auto.py update
 
 ## 五、订阅失败时上传本地配置
 
-本节的操作分为 **Mac 本地终端** 和 **Linux 服务器终端**。
-配置文件正文在 Mac 准备并上传；来源清单按下面的 heredoc 命令在 Linux 一次性生成，不需要使用编辑器逐行修改。
+本节的操作分为 **Mac 本地终端** 和 **Linux 服务器终端**。配置文件在 Mac 准备并上传。
 
-### 5.1 在 Mac 准备本地配置文件（本教程以 Karing 为例）
+1. 在 Mac 准备本地配置文件（本教程以 Karing 为例）
 
-打开 `Karing` -> `我的配置` -> `选中某一配置` -> `点击分享按钮` -> `拷贝` -> `在 Mac Finder 任意找一文件夹` -> `粘贴`
+&emsp;&emsp;&emsp;&emsp;打开 `Karing` -> `我的配置` -> `选中某一配置` -> `点击分享按钮` -> `拷贝` -> `在 Mac Finder 任意找一文件夹` -> `粘贴`
 
-### 5.2 从 Mac 上传到服务器临时目录
+2. 从 Mac 上传到服务器临时目录
 
-通过 `Termius` 等工具 `SFTP` 将配置文件上传到 Linux 云服务器的 `Home` 目录
+&emsp;&emsp;&emsp;&emsp;通过 `Termius` 等工具 `SFTP` 将配置文件上传到 Linux 云服务器的 `Home` 目录，可以重复上传多个文件，例如 `shanhai.json` 和 `yep.json`。
 
-可以重复上传多个文件，例如 `shanhai.json` 和 `yep.json`。
+3. 在 Linux 安装本地配置文件
 
-### 5.3 在 Linux 安装本地配置文件
+&emsp;&emsp;&emsp;&emsp;以下命令把上传文件移动到服务使用的受保护目录，并设置 `root:sing-box` 和 `0640` 权限。
 
-以下命令把上传文件移动到服务使用的受保护目录，并设置 `root:sing-box` 和 `0640` 权限。文件名和路径要按实际上传的文件填写。
+&emsp;&emsp;&emsp;&emsp;**文件名和路径要按实际上传的文件填写。** 即 `~/shanhai.json` 部分，如有多个文件，可以在 `~/shanhai.json` 后面空格增加。
 
 ```bash
 sudo install -d -m 0770 -o root -g sing-box /var/lib/sing-box-auto/subscriptions-cache && \
@@ -83,7 +82,7 @@ sudo install -m 0640 -o root -g sing-box ~/shanhai.json /var/lib/sing-box-auto/s
 rm -f ~/shanhai.json
 ```
 
-### 5.4 在 Linux 准备来源清单
+4. 在 Linux 准备来源清单
 
 在 Linux 服务器终端创建来源清单。默认只启用已经上传的 `shanhai.json`，不要保留不存在的文件或不可访问的订阅地址：
 
@@ -112,6 +111,24 @@ EOF
     url: https://YOUR_SUBSCRIPTION_HOST/YOUR_SUBSCRIPTION_PATH
 ```
 
+如果远程订阅和本地文件是同一个订阅的两种获取方式，应该把它们放入同一个 `source_group`，并设置优先级。数字越小越优先；同组只会选择一个成功来源，不会把两份同源节点重复合并：
+
+```yaml
+  - name: shanhai-remote
+    source: url
+    source_group: shanhai
+    priority: 10
+    url: https://YOUR_SUBSCRIPTION_HOST/YOUR_SUBSCRIPTION_PATH
+
+  - name: shanhai-local
+    source: file
+    source_group: shanhai
+    priority: 20
+    path: /var/lib/sing-box-auto/subscriptions-cache/shanhai.json
+```
+
+远程来源成功时使用远程来源；远程失败时自动尝试本地来源。`yep-local` 等其他订阅不要设置相同的 `source_group`，它们会继续参与独立合并。
+
 只有在文件确实已上传、订阅链接确实可访问时才保留对应条目。不要把真实链接、token 或节点内容写进项目仓库。
 
 ### 5.5 在 Linux 安装来源清单并生成配置
@@ -128,7 +145,7 @@ sudo python3 /usr/local/libexec/sing-box-auto.py update
 /etc/sing-box-auto/config.json
 ```
 
-sing-box 服务始终读取这份最终配置。若部分来源暂时不可用，更新会记录不可用来源并继续使用成功来源；若所有来源暂时不可用，会复用之前通过校验的最终配置。若没有任何可用来源且不存在可用旧配置，会明确报错。
+sing-box 服务始终读取这份最终配置。同一 `source_group` 只选择一个成功来源；不同来源组会按连接参数合并去重。若部分来源暂时不可用，更新会记录不可用来源并继续使用成功来源；若所有来源暂时不可用，会复用之前通过校验的最终配置。若没有任何可用来源且不存在可用旧配置，会明确报错。
 
 ## 六、检查服务和代理
 
@@ -199,8 +216,11 @@ run_case "默认代理" "https://www.wikipedia.org" proxy
 查看当前 `all_auto` 的实际出口 IP：
 
 ```bash
-curl -x http://127.0.0.1:1080 --max-time 20 -fsS https://api.ipify.org
-echo
+echo "=== 代理出口 IP 查询 ===" && \
+IP=$(curl -x http://127.0.0.1:1080 --max-time 20 -fsS https://api.ipify.org) && \
+echo "IP      : $IP" && \
+curl --max-time 20 -fsS "https://api.iping.cc/v1/query?ip=$IP&language=zh" | \
+jq -r '"国家    : \(.data.country)\n地区    : \(.data.region)\n城市    : \(.data.city)"'
 ```
 
 当前 `us_auto`、`sg_auto` 等区域组使用 URLTest，日志会显示最终选中的节点。若某个区域组只有一个节点，日志只能确认走了代理节点，不能仅凭节点名称区分它属于哪个 URLTest 组。

@@ -463,12 +463,12 @@ def load_yaml(path: Path, default: Any) -> Any:
     return default if value is None else value
 
 
-def ensure_subscription_file(*, allow_empty: bool = False) -> dict[str, dict[str, str]]:
+def ensure_subscription_file(*, allow_empty: bool = False) -> dict[str, dict[str, Any]]:
     if SUBSCRIPTIONS.exists():
         SUBSCRIPTIONS.chmod(0o600)
     data = load_yaml(SUBSCRIPTIONS, {"subscriptions": []})
     entries = data.get("subscriptions", []) if isinstance(data, dict) else []
-    subscriptions: dict[str, dict[str, str]] = {}
+    subscriptions: dict[str, dict[str, Any]] = {}
     for item in entries:
         if not isinstance(item, dict) or not item.get("name"):
             continue
@@ -480,7 +480,12 @@ def ensure_subscription_file(*, allow_empty: bool = False) -> dict[str, dict[str
             path = str(item.get("path", "")).strip()
             if not path:
                 raise DeploymentError(f"订阅 {name} 使用本地文件模式但缺少 path。")
-            subscriptions[name] = {"source": "file", "path": path}
+            spec: dict[str, Any] = {"source": "file", "path": path}
+            source_group = str(item.get("source_group", "")).strip()
+            if source_group:
+                spec["source_group"] = source_group
+                spec["priority"] = parse_source_priority(name, item.get("priority", 100))
+            subscriptions[name] = spec
             continue
         if source != "url":
             raise DeploymentError(f"订阅 {name} 的 source 只支持 url 或 file。")
@@ -489,7 +494,12 @@ def ensure_subscription_file(*, allow_empty: bool = False) -> dict[str, dict[str
             raise DeploymentError(f"订阅 {name} 缺少 url。")
         if not url.lower().startswith("https://"):
             raise DeploymentError(f"订阅 {name} 不是 HTTPS URL，已停止。")
-        subscriptions[name] = {"source": "url", "url": url}
+        spec = {"source": "url", "url": url}
+        source_group = str(item.get("source_group", "")).strip()
+        if source_group:
+            spec["source_group"] = source_group
+            spec["priority"] = parse_source_priority(name, item.get("priority", 100))
+        subscriptions[name] = spec
     if subscriptions:
         return subscriptions
     if allow_empty:
@@ -511,6 +521,13 @@ def ensure_subscription_file(*, allow_empty: bool = False) -> dict[str, dict[str
     SUBSCRIPTIONS.write_text(yaml.safe_dump(write_yaml, allow_unicode=True, sort_keys=False), encoding="utf-8")
     SUBSCRIPTIONS.chmod(0o600)
     return subscriptions
+
+
+def parse_source_priority(name: str, value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise DeploymentError(f"订阅 {name} 的 priority 必须是整数。") from exc
 
 
 def node_identity(node: dict[str, Any]) -> str:
@@ -563,34 +580,70 @@ def read_subscription_nodes(name: str, subscription: Any) -> tuple[str, list[dic
     return fmt, parsed
 
 
+def merge_source_nodes(
+    name: str,
+    fmt: str,
+    parsed: list[dict[str, Any]],
+    nodes: list[dict[str, Any]],
+    seen: set[str],
+) -> None:
+    protocols: dict[str, int] = {}
+    before_count = len(nodes)
+    for node in parsed:
+        protocols[node["type"]] = protocols.get(node["type"], 0) + 1
+        key = node_identity(node)
+        if key in seen:
+            continue
+        seen.add(key)
+        node["source"] = name
+        nodes.append(node)
+    added_count = len(nodes) - before_count
+    duplicate_count = len(parsed) - added_count
+    log(
+        f"订阅 {name}: 格式={fmt}，解析={len(parsed)}，新增={added_count}，"
+        f"去重={duplicate_count}，协议={','.join(f'{k}:{v}' for k,v in protocols.items())}"
+    )
+
+
 def load_nodes(subscriptions: dict[str, Any], *, allow_all_unavailable: bool = False) -> list[dict[str, Any]]:
     nodes: list[dict[str, Any]] = []
     seen: set[str] = set()
     unavailable: list[str] = []
+    grouped: dict[str, list[tuple[str, Any]]] = {}
     for name, subscription in subscriptions.items():
-        try:
-            fmt, parsed = read_subscription_nodes(name, subscription)
-        except (DeploymentError, UnsupportedSubscription) as exc:
-            if not allow_all_unavailable:
-                raise DeploymentError(redact_text(str(exc))) from exc
-            unavailable.append(name)
-            continue
-        protocols: dict[str, int] = {}
-        before_count = len(nodes)
-        for node in parsed:
-            protocols[node["type"]] = protocols.get(node["type"], 0) + 1
-            key = node_identity(node)
-            if key in seen:
+        if isinstance(subscription, dict) and str(subscription.get("source_group", "")).strip():
+            group = str(subscription["source_group"]).strip()
+            group_key = f"group:{group}"
+        else:
+            group_key = f"source:{name}"
+        grouped.setdefault(group_key, []).append((name, subscription))
+
+    for group_key, candidates in grouped.items():
+        is_fallback_group = group_key.startswith("group:")
+        if is_fallback_group:
+            candidates.sort(key=lambda item: parse_source_priority(
+                item[0], item[1].get("priority", 100) if isinstance(item[1], dict) else 100
+            ))
+        group_name = group_key.removeprefix("group:") if is_fallback_group else candidates[0][0]
+        errors: list[str] = []
+        selected = False
+        for name, subscription in candidates:
+            try:
+                fmt, parsed = read_subscription_nodes(name, subscription)
+            except (DeploymentError, UnsupportedSubscription) as exc:
+                errors.append(str(exc))
                 continue
-            seen.add(key)
-            node["source"] = name
-            nodes.append(node)
-        added_count = len(nodes) - before_count
-        duplicate_count = len(parsed) - added_count
-        log(
-            f"订阅 {name}: 格式={fmt}，解析={len(parsed)}，新增={added_count}，"
-            f"去重={duplicate_count}，协议={','.join(f'{k}:{v}' for k,v in protocols.items())}"
-        )
+            if is_fallback_group and len(candidates) > 1 and errors:
+                log(f"来源组 {group_name}：优先来源不可用，改用 {name}。")
+            merge_source_nodes(name, fmt, parsed, nodes, seen)
+            selected = True
+            break
+        if selected:
+            continue
+        if not allow_all_unavailable:
+            detail = errors[-1] if errors else f"来源组 {group_name} 没有可用来源"
+            raise DeploymentError(redact_text(detail))
+        unavailable.append(group_name)
     if unavailable and nodes:
         names = "、".join(unavailable)
         log(f"部分订阅来源不可用（{names}），继续使用可用来源更新。")
