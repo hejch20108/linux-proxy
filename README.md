@@ -9,23 +9,28 @@
 
 ## 二、下载自动化脚本和分流规则
 
-```bash
-curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/hejch20108/linux-proxy/main/sing_box_auto.py -o 'sing_box_auto.py' && \
-curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/hejch20108/linux-proxy/main/custom_config.yaml -o "custom_config.yaml"
-```
+- 下载
 
-验证是否下载成功
+  ```bash
+  curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/hejch20108/linux-proxy/main/sing_box_auto.py -o 'sing_box_auto.py' && \
+  curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/hejch20108/linux-proxy/main/custom_config.yaml -o "custom_config.yaml"
+  ```
 
-```bash
-ls -l sing_box_auto.py custom_config.yaml
-```
+- 验证是否下载成功
+
+  ```bash
+  ls -l sing_box_auto.py custom_config.yaml
+  ```
 
 ## 三、首次部署
 
-```bash
-sudo install -d -m 755 /etc/apt/sources.list.d && \
-sudo python3 sing_box_auto.py deploy
-```
+- 执行如下命令
+
+  ```bash
+  sudo install -d -m 755 /etc/apt/sources.list.d && \
+  sudo python3 sing_box_auto.py deploy && \
+  rm -f sing_box_auto.py custom_config.yaml
+  ```
 
 `deploy` 会完成：
 
@@ -62,19 +67,19 @@ sudo python3 /usr/local/libexec/sing-box-auto.py update
 
 本节的操作分为 **Mac 本地终端** 和 **Linux 服务器终端**。配置文件在 Mac 准备并上传。
 
-1. 在 Mac 准备本地配置文件（本教程以 Karing 为例）
+### 5.1 在 Mac 准备本地配置文件（本教程以 Karing 为例）
 
-&emsp;&emsp;&emsp;&emsp;打开 `Karing` -> `我的配置` -> `选中某一配置` -> `点击分享按钮` -> `拷贝` -> `在 Mac Finder 任意找一文件夹` -> `粘贴`
+打开 `Karing` -> `我的配置` -> `选中某一配置` -> `点击分享按钮` -> `拷贝` -> `在 Mac Finder 任意找一文件夹` -> `粘贴`
 
-2. 从 Mac 上传到服务器临时目录
+### 5.2 从 Mac 上传到服务器临时目录
 
-&emsp;&emsp;&emsp;&emsp;通过 `Termius` 等工具 `SFTP` 将配置文件上传到 Linux 云服务器的 `Home` 目录，可以重复上传多个文件，例如 `shanhai.json` 和 `yep.json`。
+通过 `Termius` 等工具 `SFTP` 将配置文件上传到 Linux 云服务器的 `Home` 目录，可以重复上传多个文件，例如 `shanhai.json` 和 `yep.json`。
 
-3. 在 Linux 安装本地配置文件
+### 5.3 在 Linux 安装本地配置文件
 
-&emsp;&emsp;&emsp;&emsp;以下命令把上传文件移动到服务使用的受保护目录，并设置 `root:sing-box` 和 `0640` 权限。
+以下命令把上传文件移动到服务使用的受保护目录，并设置 `root:sing-box` 和 `0640` 权限。
 
-&emsp;&emsp;&emsp;&emsp;**文件名和路径要按实际上传的文件填写。** 即 `~/shanhai.json` 部分，如有多个文件，可以在 `~/shanhai.json` 后面空格增加。
+**文件名和路径要按实际上传的文件填写。** 即 `~/shanhai.json` 部分，如有多个文件，可以在 `~/shanhai.json` 后面空格增加。
 
 ```bash
 sudo install -d -m 0770 -o root -g sing-box /var/lib/sing-box-auto/subscriptions-cache && \
@@ -82,56 +87,34 @@ sudo install -m 0640 -o root -g sing-box ~/shanhai.json /var/lib/sing-box-auto/s
 rm -f ~/shanhai.json
 ```
 
-4. 在 Linux 准备来源清单
+### 5.4 在 Linux 准备来源清单
 
-在 Linux 服务器终端创建来源清单。默认只启用已经上传的 `shanhai.json`，不要保留不存在的文件或不可访问的订阅地址：
+在 Linux 服务器终端执行如下命令，创建来源清单。不要保留不存在的文件或不可访问的订阅地址：
 
 ```bash
 cat > ~/subscriptions.yaml <<'EOF'
 subscriptions:
-  - name: shanhai-local  # 按需修改，任意名称
+  - name: shanhai-remote  # 远程订阅名称(任意名称)
+    source: url
+    source_group: shanhai  # 组别(用于识别是否同一个服务提供商)
+    priority: 10  # 统一组别数字越小优先级越高(建议优先 URL 订阅链接的方式)
+    url: "https://YOUR_SUBSCRIPTION_HOST/YOUR_SUBSCRIPTION_PATH"  # 订阅链接
+
+  - name: shanhai-local  # 本地配置文件名称(任意名称)
     source: file
-    path: /var/lib/sing-box-auto/subscriptions-cache/shanhai.json  # 按需修改，必须跟实际上传文件的路径一致
-EOF
-```
+    source_group: shanhai  # 组别(用于识别是否同一个服务提供商)
+    priority: 20  # 统一组别数字越小优先级越高
+    path: /var/lib/sing-box-auto/subscriptions-cache/shanhai.json  # 路径必须跟实际保存路径一致
 
-如果还上传了 `yep.json`，在 `shanhai-local` 条目后增加：
-
-```yaml
-  - name: yep-local  # 任意名称
+  - name: yep-local  # 本地配置文件名称(任意名称)，如果有多个本地文件的情况才填写，否则可以将这一组删除
     source: file
     path: /var/lib/sing-box-auto/subscriptions-cache/yep.json
-```
-
-如果还要合并一个当前可以访问的订阅链接，增加：
-
-```yaml
-  - name: another-remote  # 任意名称
-    source: url
-    url: https://YOUR_SUBSCRIPTION_HOST/YOUR_SUBSCRIPTION_PATH
+EOF
 ```
 
 如果远程订阅和本地文件是同一个订阅的两种获取方式，应该把它们放入同一个 `source_group`，并设置优先级。数字越小越优先；同组只会选择一个成功来源，不会把两份同源节点重复合并：
 
-```yaml
-  - name: shanhai-remote
-    source: url
-    source_group: shanhai
-    priority: 10
-    url: https://YOUR_SUBSCRIPTION_HOST/YOUR_SUBSCRIPTION_PATH
-
-  - name: shanhai-local
-    source: file
-    source_group: shanhai
-    priority: 20
-    path: /var/lib/sing-box-auto/subscriptions-cache/shanhai.json
-```
-
-远程来源成功时使用远程来源；远程失败时自动尝试本地来源。`yep-local` 等其他订阅不要设置相同的 `source_group`，它们会继续参与独立合并。
-
-只有在文件确实已上传、订阅链接确实可访问时才保留对应条目。不要把真实链接、token 或节点内容写进项目仓库。
-
-### 5.5 在 Linux 安装来源清单并生成配置
+### 5.5 在 Linux 执行如下命令，安装来源清单并生成配置
 
 ```bash
 sudo install -m 0600 -o root -g root ~/subscriptions.yaml /etc/sing-box-auto/subscriptions.yaml && \
@@ -155,23 +138,22 @@ sudo systemctl status sing-box-auto --no-pager && \
 sudo ss -lntp | grep ':1080'
 ```
 
-入口默认只监听：
+入口默认只监听：`127.0.0.1:1080`
 
-```text
-127.0.0.1:1080
-```
+## 七、测试
 
-服务器本机测试代理：
+### 7.1 服务器本机测试代理
+
+返回 HTTP 204 或其他成功响应，表示代理链路正常。
 
 ```bash
 curl -x socks5h://127.0.0.1:1080 --max-time 20 -I https://www.gstatic.com/generate_204
 ```
 
-返回 HTTP 204 或其他成功响应，表示代理链路正常。
+### 7.2 测试分流规则
 
-## 七、测试分流规则
-
-下面的命令使用 HTTP 代理访问域名，避免域名先在本机解析成 IP，导致域名规则无法匹配。命令只输出每条规则的 PASS/FAIL、HTTP 状态和实际路由类型。
+下面的命令使用 HTTP 代理访问域名，避免域名先在本机解析成 IP，导致域名规则无法匹配。
+命令只输出每条规则的 PASS/FAIL、HTTP 状态和实际路由类型。
 
 ```bash
 run_case() {
@@ -213,7 +195,7 @@ run_case "国内直连" "https://www.baidu.com" direct
 run_case "默认代理" "https://www.wikipedia.org" proxy
 ```
 
-查看当前 `all_auto` 的实际出口 IP：
+### 7.3 查看当前 `all_auto` 的实际出口 IP
 
 ```bash
 echo "=== 代理出口 IP 查询 ===" && \
@@ -225,49 +207,7 @@ jq -r '"国家    : \(.data.country)\n地区    : \(.data.region)\n城市    : \
 
 当前 `us_auto`、`sg_auto` 等区域组使用 URLTest，日志会显示最终选中的节点。若某个区域组只有一个节点，日志只能确认走了代理节点，不能仅凭节点名称区分它属于哪个 URLTest 组。
 
-## 八、日常更新来源
-
-订阅链接模式：
-
-```bash
-sudo python3 /usr/local/libexec/sing-box-auto.py update
-```
-
-本地文件模式：先在 Mac 重新上传更新后的配置文件到服务器，再重复“5.3 安装本地配置文件”和“5.5 安装来源清单”，最后执行上面的 `update`。仅在 Linux 上重复执行 `update` 不会从 Mac 自动获取新文件。
-
-查看服务日志：
-
-```bash
-sudo journalctl -u sing-box-auto -e --no-pager
-```
-
-配置更新采用临时文件校验和原子替换。校验或重启失败时会尝试恢复旧配置。
-
-## 九、启用自动更新
-
-自动更新默认关闭。订阅链接模式确认手动更新和代理测试稳定后，才建议启用：
-
-```bash
-sudo systemctl enable --now sing-box-auto-update.timer && \
-sudo systemctl list-timers sing-box-auto-update.timer && \
-sudo systemctl status sing-box-auto-update.timer --no-pager && \
-sudo journalctl -u sing-box-auto-update.service -e --no-pager
-```
-
-本地文件模式不会自动从 Mac 上传新文件，因此不建议仅为本地文件模式启用 timer。
-
-## 十、服务管理
-
-```bash
-sudo systemctl start sing-box-auto
-sudo systemctl stop sing-box-auto
-sudo systemctl restart sing-box-auto
-sudo systemctl enable sing-box-auto
-sudo systemctl disable sing-box-auto
-sudo systemctl status sing-box-auto --no-pager
-```
-
-## 十一、持久化代理
+## 八、持久化代理
 
 写入 `~/.bashrc`
 
@@ -292,6 +232,54 @@ source ~/.bashrc
 env | grep -iE '^(http|https|all)_proxy='
 ```
 
+## 九、更新
+
+### 9.1 订阅日常手动更新
+
+#### 订阅链接模式
+
+```bash
+sudo python3 /usr/local/libexec/sing-box-auto.py update
+```
+
+#### 本地文件模式
+
+先在 Mac 更新配置文件，再重复第五章节操作。
+
+### 9.2 订阅自动更新
+
+自动更新默认关闭。订阅链接模式确认手动更新和代理测试稳定后，才建议启用：
+
+```bash
+sudo systemctl enable --now sing-box-auto-update.timer && \
+sudo systemctl list-timers sing-box-auto-update.timer && \
+sudo systemctl status sing-box-auto-update.timer --no-pager && \
+sudo journalctl -u sing-box-auto-update.service -e --no-pager
+```
+
+本地文件模式不会自动从 Mac 上传新文件，因此不建议仅为本地文件模式启用 timer。
+
+### 9.3 分流规则更新
+
+如果需要修改分流规则，请在 Mac 本地修改项目中的 `custom_config.yaml`，然后提交并推送到 `GitHub`
+
+```bash
+curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/hejch20108/linux-proxy/main/custom_config.yaml -o "custom_config.yaml" && \
+sudo install -m 0640 -o root -g sing-box custom_config.yaml /etc/sing-box-auto/custom_config.yaml && \
+rm -f custom_config.yaml && \
+sudo python3 /usr/local/libexec/sing-box-auto.py update
+```
+
+## 十、服务管理
+
+```bash
+sudo systemctl start sing-box-auto
+sudo systemctl stop sing-box-auto
+sudo systemctl restart sing-box-auto
+sudo systemctl enable sing-box-auto
+sudo systemctl disable sing-box-auto
+sudo systemctl status sing-box-auto --no-pager
+```
 
 ## 十二、回滚
 
@@ -305,15 +293,16 @@ sudo python3 /usr/local/libexec/sing-box-auto.py rollback
 
 ## 十三、配置和权限
 
-```text
-/etc/sing-box-auto/subscriptions.yaml  订阅来源（URL 或本地文件），root:root，0600
-/etc/sing-box-auto/custom_config.yaml   分流规则
-/etc/sing-box-auto/config.json          生成配置，root:sing-box，0640
-/var/lib/sing-box-auto/rulesets/        .srs 规则集缓存
-/var/lib/sing-box-auto/subscriptions-cache/ 本地订阅正文，root:sing-box，目录 0770，文件 0640
-/var/backups/sing-box-auto/             更新过程中的配置备份
-/usr/local/libexec/sing-box-auto.py     systemd 使用的脚本副本
-```
+| 路径 | 用途与权限 |
+| --- | --- |
+| `/etc/sing-box-auto/subscriptions.yaml` | 订阅来源（URL 或本地文件），`root:root`，`0600` |
+| `/etc/sing-box-auto/custom_config.yaml` | 分流规则 |
+| `/etc/sing-box-auto/config.json` | 生成配置，`root:sing-box`，`0640` |
+| `/var/lib/sing-box-auto/rulesets/` | `.srs` 规则集缓存 |
+| `/var/lib/sing-box-auto/subscriptions-cache/` | 本地订阅正文，`root:sing-box`，目录 `0770`，文件 `0640` |
+| `/var/backups/sing-box-auto/` | 更新过程中的配置备份 |
+| `/usr/local/libexec/sing-box-auto.py` | systemd 使用的脚本副本 |
+| `/etc/systemd/system/` | `sing-box-auto.service` 和更新 timer 单元 |
 
 服务由 `sing-box` 用户运行。更新脚本会自动设置生成配置和规则集的读取权限，以及运行缓存目录的写入权限。
 
@@ -331,27 +320,3 @@ sudo python3 /usr/local/libexec/sing-box-auto.py rollback
 GitHub 相关规则集下载统一经过 `gh-proxy.org`。默认规则使用 SagerNet 的 `geoip-cn.srs` 和 `geosite-cn.srs`。
 
 默认不会把代理入口暴露到公网。如需远程客户端访问，必须另行设计认证、防火墙和 TLS，不要直接暴露无认证 mixed 入口。
-
-## 十五、可选删除
-
-首次部署完成并确认 `update` 成功后，原始下载文件可以删除：
-
-- `sing_box_auto.py` 会复制到 `/usr/local/libexec/sing-box-auto.py`；
-- `custom_config.yaml` 会复制到 `/etc/sing-box-auto/custom_config.yaml`。
-
-确认服务正常后，在当前下载目录执行：
-
-```bash
-rm -f sing_box_auto.py custom_config.yaml
-```
-
-## 十六、分流规则更新
-
-如果需要修改分流规则，请在 Mac 本地修改项目中的 `custom_config.yaml`，然后提交并推送到 `GitHub`
-
-```bash
-curl -fsSL https://gh-proxy.org/https://raw.githubusercontent.com/hejch20108/linux-proxy/main/custom_config.yaml -o "custom_config.yaml" && \
-sudo install -m 0640 -o root -g sing-box custom_config.yaml /etc/sing-box-auto/custom_config.yaml && \
-rm -f custom_config.yaml && \
-sudo python3 /usr/local/libexec/sing-box-auto.py update
-```
