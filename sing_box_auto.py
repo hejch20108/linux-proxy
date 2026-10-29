@@ -49,6 +49,11 @@ SERVICE_UNIT = Path("/etc/systemd/system/sing-box-auto.service")
 TIMER_UNIT = Path("/etc/systemd/system/sing-box-auto-update.timer")
 MAX_SUBSCRIPTION_BYTES = 8 * 1024 * 1024
 SUBSCRIPTION_FETCH_TIMEOUT = 10
+APT_KEY_URL = "https://sing-box.app/gpg.key"
+APT_KEY_CONNECT_TIMEOUT = 10
+APT_KEY_MAX_TIME = 30
+APT_KEY_RETRIES = 3
+APT_KEY_RETRY_DELAY = 2
 SUPPORTED_PROTOCOLS = {"anytls", "vless"}
 IGNORED_CLASH_TYPES = {"direct", "reject", "dns", "selector", "url-test", "load-balance"}
 
@@ -816,6 +821,41 @@ def service_user() -> str:
         return "sing-box"
 
 
+def download_apt_key(key_path: Path) -> None:
+    """下载 APT 签名密钥，成功后再替换正式文件。"""
+    temporary_path = key_path.with_name(f".{key_path.name}.download")
+    temporary_path.unlink(missing_ok=True)
+    temporary_path.touch(mode=0o644)
+    command = [
+        "curl", "-fsSL", "--show-error",
+        "--connect-timeout", str(APT_KEY_CONNECT_TIMEOUT),
+        "--max-time", str(APT_KEY_MAX_TIME),
+        "--remove-on-error",
+        APT_KEY_URL,
+        "-o", str(temporary_path),
+    ]
+    replaced = False
+    try:
+        for attempt in range(APT_KEY_RETRIES + 1):
+            try:
+                run_command(command, capture=False)
+                break
+            except subprocess.CalledProcessError:
+                if attempt >= APT_KEY_RETRIES:
+                    raise
+                log(f"APT 签名密钥下载失败，{APT_KEY_RETRY_DELAY}s 后重试（第 {attempt + 2}/{APT_KEY_RETRIES + 1} 次）。")
+                time.sleep(APT_KEY_RETRY_DELAY)
+        if temporary_path.stat().st_size == 0:
+            raise DeploymentError("APT 签名密钥下载结果为空。")
+        temporary_path.replace(key_path)
+        replaced = True
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise DeploymentError("下载 sing-box APT 签名密钥失败，请检查服务器到官方站点的 TLS 网络。") from exc
+    finally:
+        if not replaced:
+            temporary_path.unlink(missing_ok=True)
+
+
 def install_sing_box() -> None:
     if shutil.which("sing-box") is None:
         log("正在通过官方 APT 仓库安装 sing-box。")
@@ -823,7 +863,7 @@ def install_sing_box() -> None:
         run_command(["apt-get", "install", "-y", "ca-certificates", "curl", "python3", "python3-yaml"], capture=False)
         key_dir = Path("/etc/apt/keyrings")
         key_dir.mkdir(parents=True, exist_ok=True)
-        run_command(["curl", "-fsSL", "https://sing-box.app/gpg.key", "-o", str(key_dir / "sagernet.asc")])
+        download_apt_key(key_dir / "sagernet.asc")
         source = Path("/etc/apt/sources.list.d/sagernet.sources")
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text("Types: deb\nURIs: https://deb.sagernet.org/\nSuites: *\nComponents: *\nEnabled: yes\nSigned-By: /etc/apt/keyrings/sagernet.asc\n", encoding="utf-8")
